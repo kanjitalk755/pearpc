@@ -1,3 +1,14 @@
+You can run PearPC on an Apple Silicon Mac using this branch.
+
+preparation:
+$ brew install sdl2
+
+how to build:
+$ ./autogen.sh
+$ ./configure
+$ make
+
+----
 
 	     PearPC
 	================

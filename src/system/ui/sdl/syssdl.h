@@ -26,17 +26,10 @@
 #include "system/display.h"
 #include "system/systhread.h"
 
-extern SDL_Surface *	gSDLScreen;
-
 class SDLSystemDisplay: public SystemDisplay {
 protected:
-	DisplayCharacteristics	mSDLChar;	
-	byte *			mSDLFrameBuffer;
-	bool			mChangingScreen;
-	SDL_Surface *		mSDLClientScreen;
+	DisplayCharacteristics	mSDLChar;
 	sys_mutex		mRedrawMutex;
-	SDL_Cursor *		mVisibleCursor;
-	SDL_Cursor *		mInvisibleCursor;
 	
 	uint bitsPerPixelToXBitmapPad(uint bitsPerPixel);
 	void dumpDisplayChar(const DisplayCharacteristics &chr);
@@ -45,14 +38,17 @@ public:
 	DisplayCharacteristics  mSDLChartemp;
 	SDL_cond 		*mWaitcondition;
 	bool			mChangeResRet;
-	uint32			mEventThreadID;
+	uint64			mEventThreadID;
+	SDL_Window *mWindow;
+	SDL_Texture *mTexture;
+	SDL_Renderer *mRenderer;
+	uint16 *mFrameBufferCnv;
 
 	SDLSystemDisplay(const char *title, const DisplayCharacteristics &chr, int redraw_ms);
 
-		void finishMenu();
+	void finishMenu();
 	virtual	void updateTitle();
 	virtual	int  toString(char *buf, int buflen) const;
-		void toggleFullScreen();
 	virtual	void displayShow();
 	virtual	void convertCharacteristicsToHost(DisplayCharacteristics &aHostChar, const DisplayCharacteristics &aClientChar);
 	virtual	bool changeResolution(const DisplayCharacteristics &aCharacteristics);	

@@ -72,7 +72,7 @@ void *sys_mmap_anon(size_t size)
 
 void *sys_malloc32(size_t size)
 {
-	void *ret = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_SHARED | MAP_32BIT, -1, 0);
+	void *ret = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_SHARED/* | MAP_32BIT*/, -1, 0);
 	return (ret == (void *)-1) ? NULL : ret;
 }
 

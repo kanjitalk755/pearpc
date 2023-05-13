@@ -24,6 +24,11 @@
 #include "system/types.h"
 #include "config.h"
 
+#if 1
+#define ppc_bswap_half(a)	__builtin_bswap16(a)
+#define ppc_bswap_word(a)	__builtin_bswap32(a)
+#define ppc_bswap_dword(a)	__builtin_bswap64(a)
+#else
 static inline FUNCTION_CONST uint32 ppc_bswap_word(uint32 data)
 {
 	return (data>>24)|((data>>8)&0xff00)|((data<<8)&0xff0000)|(data<<24);
@@ -38,6 +43,7 @@ static inline FUNCTION_CONST uint16 ppc_bswap_half(uint16 data)
 {
 	return (data<<8)|(data>>8);
 }
+#endif
 
 #if HOST_ENDIANESS == HOST_ENDIANESS_LE
 

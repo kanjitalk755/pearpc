@@ -43,6 +43,7 @@
 #include "system/mouse.h"
 #include "system/keyboard.h"
 #include "system/sys.h"
+#include "system/systhread.h"
 #include "configparser.h"
 
 #include "system/gif.h"
@@ -195,6 +196,13 @@ extern "C" int SDL_main(int argc, char *argv[])
 }
 #endif
 
+static bool running;
+void *cpuThreadLoop(void *) {
+	ppc_cpu_run();
+	running = false;
+	return NULL;
+}
+
 int main(int argc, char *argv[])
 {	
 	if (argc != 2) {
@@ -241,7 +249,7 @@ int main(int argc, char *argv[])
 		prom_init_config();
 		io_init_config();
 		ppc_cpu_init_config();
-		debugger_init_config();
+//		debugger_init_config();
 
 		try {
 			LocalFile *config;
@@ -425,8 +433,14 @@ int main(int argc, char *argv[])
 		gDisplay->print("now starting client...");
 		gDisplay->setAnsiColor(VCP(VC_WHITE, CONSOLE_BG));
 
-		ppc_cpu_run();
-
+		running = true;
+		sys_thread cpuThread;
+		sys_create_thread(&cpuThread, 0, cpuThreadLoop, NULL);
+		while (running) {
+			sys_gui_event();
+			usleep(1000);
+		}
+		sys_destroy_thread(cpuThread);
 		io_done();
 
 	} catch (const std::exception &e) {

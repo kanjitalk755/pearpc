@@ -103,8 +103,8 @@ void ppc_cpu_wakeup()
 
 void ppc_cpu_run()
 {
-	gDebugger = new Debugger();
-	gDebugger->mAlwaysShowRegs = true;
+//	gDebugger = new Debugger();
+//	gDebugger->mAlwaysShowRegs = true;
 	PPC_CPU_TRACE("execution started at %08x\n", gCPU.pc);
 	uint ops=0;
 	gCPU.effective_code_page = 0xffffffff;
@@ -114,7 +114,7 @@ void ppc_cpu_run()
 		gCPU.npc = gCPU.pc+4;
 		if ((gCPU.pc & ~0xfff) == gCPU.effective_code_page) {
 			gCPU.current_opc = ppc_word_from_BE(*((uint32*)(&gCPU.physical_code_page[gCPU.pc & 0xfff])));
-			ppc_debug_hook();
+			//ppc_debug_hook();
 		} else {
 			int ret;
 			if ((ret = ppc_direct_effective_memory_handle_code(gCPU.pc & ~0xfff, gCPU.physical_code_page))) {
@@ -147,7 +147,7 @@ void ppc_cpu_run()
 //				uint32 j=0;
 //				ppc_read_effective_word(0xc046b2f8, j);
 
-				ht_printf("@%08x (%u ops) pdec: %08x lr: %08x\r", gCPU.pc, ops, gCPU.pdec, gCPU.lr);
+//				ht_printf("@%08x (%u ops) pdec: %08x lr: %08x\r", gCPU.pc, ops, gCPU.pdec, gCPU.lr);
 #if 0
 				extern uint32 PIC_enable_low;
 				extern uint32 PIC_enable_high;

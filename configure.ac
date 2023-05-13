@@ -17,11 +17,11 @@ AC_ARG_ENABLE(fpo,
 AC_ARG_ENABLE(profiling,
 	[  --enable-profiling      make a profile build (implies debug) [default=no]],,enable_profiling="no")
 AC_ARG_ENABLE(debug,
-	[  --enable-debug          make a debug build [default=yes]],,enable_debug="yes")
+	[  --enable-debug          make a debug build [default=no]],,enable_debug="no")
 AC_ARG_ENABLE(cpu,
-	[  --enable-cpu            choose cpu (generic, jitc_x86 or jitc_x86_64) [default=<YOUR-ARCH> or generic]],,enable_cpu="")
+	[  --enable-cpu            choose cpu (generic, jitc_x86 or jitc_x86_64) [default=<YOUR-ARCH> or generic]],,enable_cpu="generic")
 AC_ARG_ENABLE(ui,
-	[  --enable-ui             choose ui (beos, gtk, qt, sdl, win32, or x11) [system-specific defaults]],,enable_ui="no")
+	[  --enable-ui             choose ui (beos, gtk, qt, sdl, win32, or x11) [system-specific defaults]],,enable_ui="sdl")
 
 PPC_CFLAGS="-Wundef -Wall -fsigned-char"
 PPC_CXXFLAGS="-Wundef -Wall -Woverloaded-virtual -std=c++11 -fsigned-char"
@@ -198,6 +198,7 @@ AC_PROG_MAKE_SET
 AC_PROG_CC
 AC_PROG_CXX
 AC_PROG_CPP
+AC_PROG_OBJC
 AM_PROG_AS
 
 dnl To ensure backward compatibility, Automake's `AM_PROG_LEX' invokes
@@ -363,7 +364,7 @@ gtk)
 beos)
 ;;
 sdl)
-	SDL_VERSION=1.2.0
+	SDL_VERSION=2.0.0
 
 	AM_PATH_SDL($SDL_VERSION,
 		    :,
@@ -376,7 +377,7 @@ sdl)
 	PPC_CFLAGS="$PPC_CFLAGS $SDL_CFLAGS"
 	PPC_CXXFLAGS="$PPC_CXXFLAGS $SDL_CFLAGS"
 	PPC_LDADD="$PPC_LDADD $SDL_LIBS"
-	PPC_LDFLAGS="$PPC_LDFLAGS $SDL_LIBS"
+	PPC_LDFLAGS="$PPC_LDFLAGS $SDL_LIBS -framework Cocoa"
 ;;
 win32)
 ;;

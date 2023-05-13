@@ -27,15 +27,6 @@
 #include <unistd.h>
 
 #include <SDL.h>
-#include <SDL_thread.h>
-
-#ifdef __WIN32__
-// We need ChangeDisplaySettings
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#undef FASTCALL
-#endif
-
 
 #include "system/display.h"
 #include "system/sysexcept.h"
@@ -54,6 +45,7 @@
 #define DPRINTF(a...) ht_printf("[Display/SDL]: " a)
 
 #include "syssdl.h"
+#include "info.h"
 
 
 uint SDLSystemDisplay::bitsPerPixelToXBitmapPad(uint bitsPerPixel)
@@ -91,9 +83,10 @@ SDLSystemDisplay::SDLSystemDisplay(const char *title, const DisplayCharacteristi
 		mClientChar.height * mClientChar.bytesPerPixel);
 	damageFrameBufferAll();
 
-	gSDLScreen = NULL;
-	mSDLFrameBuffer = NULL;
-	mChangingScreen = false;
+	mWindow = NULL;
+	mRenderer = NULL;
+	mTexture = NULL;
+	mFrameBufferCnv = NULL;
 
 	sys_create_mutex(&mRedrawMutex);
 }
@@ -109,7 +102,7 @@ void SDLSystemDisplay::updateTitle()
 	SystemKeyboard::convertKeycodeToString(key, key_toggle_mouse_grab);
 	String curTitle;
 	curTitle.assignFormat("%s - [%s %s mouse]", mTitle, key.contentChar(), (isMouseGrabbed() ? "disables" : "enables"));
-	SDL_WM_SetCaption(curTitle.contentChar(), NULL);
+	SDL_SetWindowTitle(mWindow, curTitle.contentChar());
 }
 
 int SDLSystemDisplay::toString(char *buf, int buflen) const
@@ -146,44 +139,18 @@ void SDLSystemDisplay::displayShow()
 	}
 
 	sys_lock_mutex(mRedrawMutex);
-
-	if (SDL_MUSTLOCK(gSDLScreen)) SDL_LockSurface(gSDLScreen);
-
-	sys_convert_display(mClientChar, mSDLChar, gFrameBuffer,
-		(byte*)gSDLScreen->pixels, firstDamagedLine, lastDamagedLine);
-
-	if (SDL_MUSTLOCK(gSDLScreen)) SDL_UnlockSurface(gSDLScreen);
-
-	SDL_UpdateRect(gSDLScreen, 0, firstDamagedLine, mClientChar.width, lastDamagedLine-firstDamagedLine+1);
-
-#if 0
-	if (mSDLFrameBuffer) { // using software-mode?
-		sys_convert_display(mClientChar, mSDLChar, gFrameBuffer,
-			mSDLFrameBuffer, firstDamagedLine, lastDamagedLine);
-		if (SDL_MUSTLOCK(gSDLScreen))
-			SDL_UnlockSurface(gSDLScreen);
-	} else {
-		// meaning we are in 32 bit. let sdl do a hardware-blit
-		// and convert Client to HostFramebuffer Pixelformat
-		SDL_Rect srcrect, dstrect;
-		srcrect.x = 0;
-		srcrect.y = firstDamagedLine;
-		srcrect.w = mClientChar.width;
-		srcrect.h = lastDamagedLine - firstDamagedLine+1;
-		dstrect.x = 0;
-		dstrect.y = firstDamagedLine;
-		if (SDL_MUSTLOCK(gSDLScreen))
-			SDL_UnlockSurface(gSDLScreen);
-		SDL_BlitSurface(mSDLClientScreen, &srcrect, gSDLScreen, &dstrect);
+	if (mClientChar.bytesPerPixel == 2) {
+		uint16 *sp = &((uint16 *)gFrameBuffer)[mClientChar.width * firstDamagedLine];
+		uint16 *dp = &mFrameBufferCnv[mClientChar.width * firstDamagedLine];
+		for (int i = mClientChar.width * (lastDamagedLine - firstDamagedLine + 1); i > 0; i--)
+				*dp++ = __builtin_bswap16(*sp++);
 	}
-	
-	// If possible, we should use doublebuffering and SDL_Flip()
-	// SDL_Flip(); 
-	SDL_UpdateRect(gSDLScreen, 0, firstDamagedLine, mClientChar.width, lastDamagedLine-firstDamagedLine+1);
-	if (SDL_MUSTLOCK(gSDLScreen))
-		SDL_LockSurface(gSDLScreen);
-#endif
 	sys_unlock_mutex(mRedrawMutex);
+
+	SDL_UpdateTexture(mTexture, NULL, mClientChar.bytesPerPixel == 2 ? (byte *)mFrameBufferCnv : gFrameBuffer, mClientChar.bytesPerPixel * mClientChar.width);
+	SDL_RenderClear(mRenderer);
+	SDL_RenderCopy(mRenderer, mTexture, NULL, NULL);
+	SDL_RenderPresent(mRenderer);
 }
 
 void SDLSystemDisplay::convertCharacteristicsToHost(DisplayCharacteristics &aHostChar, const DisplayCharacteristics &aClientChar)
@@ -237,13 +204,10 @@ bool SDLSystemDisplay::changeResolution(const DisplayCharacteristics &aCharacter
 
 bool SDLSystemDisplay::changeResolutionREAL(const DisplayCharacteristics &aCharacteristics)
 {
-    	Uint32 videoFlags = 0; 		/* Flags to pass to SDL_SetVideoMode */
-        DisplayCharacteristics chr;
-                  
-        DPRINTF("changeRes got called\n");
-                            
+	DisplayCharacteristics chr;
+	DPRINTF("changeRes got called\n");
 	convertCharacteristicsToHost(chr, aCharacteristics);
-	
+
 	/*
 	 * From the SDL documentation:
 	 * "Note: The bpp parameter is the number of bits per pixel,
@@ -270,195 +234,58 @@ bool SDLSystemDisplay::changeResolutionREAL(const DisplayCharacteristics &aChara
 		
 	DPRINTF("SDL: Changing resolution to %dx%dx%d\n", aCharacteristics.width, aCharacteristics.height,bitsPerPixel);
 
-	if (mFullscreen) videoFlags |= SDL_FULLSCREEN;
-	if (!SDL_VideoModeOK(chr.width, chr.height, bitsPerPixel, videoFlags)) {
-		/*
-		 * We can't this mode in fullscreen
-		 * so we try if we can use it in windowed mode.
-		 */
-		if (!mFullscreen) return false;
-		videoFlags &= ~SDL_FULLSCREEN;
-		if (!SDL_VideoModeOK(chr.width, chr.height, bitsPerPixel, videoFlags)) {
-			return false;
-		}
-		mFullscreen = false;
-		/*
-		 * We can use the mode in windowed mode.
-		 */
-	}
-	
-	if (SDL_VideoModeOK(chr.width, chr.height, bitsPerPixel, videoFlags | SDL_SWSURFACE)) {
-		videoFlags |= SDL_SWSURFACE;
-		DPRINTF("can use SWSURFACE\n");
-		if (SDL_VideoModeOK(chr.width, chr.height, bitsPerPixel, videoFlags | SDL_HWACCEL)) {
-			videoFlags |= SDL_HWACCEL;
-			DPRINTF("can use HWACCEL\n");
-		}
-	}
-
 	mSDLChar = chr;
 	mClientChar = aCharacteristics;
 	
 	sys_lock_mutex(mRedrawMutex);
-#if 0
-	if (gSDLScreen && SDL_MUSTLOCK(gSDLScreen)) {
-		SDL_UnlockSurface(gSDLScreen);
+
+	if (mFrameBufferCnv) {
+		delete[] mFrameBufferCnv;
+		mFrameBufferCnv = NULL;
 	}
-#endif
-
-	gSDLScreen = SDL_SetVideoMode(aCharacteristics.width, aCharacteristics.height,
-                          bitsPerPixel, videoFlags);
-
-	if (!gSDLScreen) {
+	if (mTexture) SDL_DestroyTexture(mTexture);
+	if (mRenderer) SDL_DestroyRenderer(mRenderer);
+	if (mWindow) SDL_DestroyWindow(mWindow);
+	mWindow = SDL_CreateWindow(APPNAME " " APPVERSION,
+							   SDL_WINDOWPOS_UNDEFINED,
+							   SDL_WINDOWPOS_UNDEFINED,
+							   aCharacteristics.width, aCharacteristics.height,
+							   mFullscreen ? SDL_WINDOW_FULLSCREEN : 0);
+	if (!mWindow) {
 		// FIXME: this is really bad.
 		ht_printf("SDL: FATAL: can't switch mode?!\n");
 		exit(1);
 	}
+	mRenderer = SDL_CreateRenderer(mWindow, -1, 0);
+	mTexture = SDL_CreateTexture(mRenderer,
+								 mClientChar.bytesPerPixel == 2 ? SDL_PIXELFORMAT_ARGB1555 : SDL_PIXELFORMAT_BGRA8888,
+								 SDL_TEXTUREACCESS_STREAMING,
+								 aCharacteristics.width, aCharacteristics.height);
+	if (mClientChar.bytesPerPixel == 2)
+		mFrameBufferCnv = new uint16[aCharacteristics.width * aCharacteristics.height];
 
-#ifdef __WIN32__
-	if (videoFlags & SDL_FULLSCREEN) {
-		DEVMODE refresh;
-		refresh.dmDisplayFrequency = chr.vsyncFrequency;
-		ChangeDisplaySettings(&refresh, DM_DISPLAYFREQUENCY);
-	}
-#else
-	// FIXME: implement refreshrate change for other host OS
-#endif
-
-	mFullscreenChanged = videoFlags & SDL_FULLSCREEN;
-	if (gSDLScreen->pitch != aCharacteristics.width * aCharacteristics.bytesPerPixel) {
-		// FIXME: this is really bad.
-		ht_printf("SDL: FATAL: new mode has scanline gap. Trying to revert to old mode.\n");
-		exit(1);
-	}	
-
+	mFullscreenChanged = mFullscreen;
 	gFrameBuffer = (byte*)realloc(gFrameBuffer, mClientChar.width *
 		mClientChar.height * mClientChar.bytesPerPixel);
-#if 0
-	if (mSDLClientScreen) {
-		// if this is a modechange, free the old surface first.
-		if (SDL_MUSTLOCK(gSDLScreen))
-			SDL_UnlockSurface(gSDLScreen);
-		SDL_FreeSurface(mSDLClientScreen);
-	}
+	damageFrameBufferAll();
 
-	// Init Clientsurface
-	mSDLClientScreen = SDL_CreateRGBSurface(SDL_HWSURFACE, mClientChar.width, mClientChar.height,
-		bitsPerPixel, 0x0000ff00, 0x00ff0000, 0xff000000, 0);
-	// Mask isn't important since we only use it as a buffer and never let SDL draw with it...
-	// Though it is used in 32 bit, and then the mask is ok
-
-	if (!mSDLClientScreen) {
-		ht_printf("SDL: FATAL: can't create surface\n");
-		exit(1);
-	}
-
-	gFrameBuffer = (byte*)mSDLClientScreen->pixels;
-
-	// are we running in 32 bit? use sdl, else use pearpc's software convert
-	if (bitsPerPixel != 32) {
-		mSDLFrameBuffer = (byte*)gSDLScreen->pixels;
-	} else { 
-		mSDLFrameBuffer = NULL;
-	}
-
-	// clean up
-	if (SDL_MUSTLOCK(gSDLScreen)) 
-		SDL_LockSurface(gSDLScreen);
-	if (SDL_MUSTLOCK(mSDLClientScreen))
-		SDL_LockSurface(mSDLClientScreen);
-#endif
-
-	//ht_printf("SDL rmask %08x, gmask %08x, bmask %08x\n", gSDLScreen->format->Rmask,
-	//	gSDLScreen->format->Gmask, gSDLScreen->format->Bmask);
-	// 
-	mSDLChar.redSize = 8 - gSDLScreen->format->Rloss;
-	mSDLChar.greenSize = 8 - gSDLScreen->format->Gloss;
-	mSDLChar.blueSize = 8 - gSDLScreen->format->Bloss;
-	mSDLChar.redShift = gSDLScreen->format->Rshift;
-	mSDLChar.greenShift = gSDLScreen->format->Gshift;
-	mSDLChar.blueShift = gSDLScreen->format->Bshift;
-
-        damageFrameBufferAll();
 	sys_unlock_mutex(mRedrawMutex);
 	return true;
 }
 
 void SDLSystemDisplay::getHostCharacteristics(Container &modes)
 {
-#ifdef __WIN32__
-	DEVMODE dm;
-	DWORD num = 0;
-	while (EnumDisplaySettings(NULL, num++, &dm)) {
-		switch (dm.dmBitsPerPel) {
-		case 15:
-		case 16:
-			dm.dmBitsPerPel = 2;
-			break;
-		case 32:
-			dm.dmBitsPerPel = 4;
-			break;
-		default:
-			continue;
-		}		
-		DisplayCharacteristics *dc = new DisplayCharacteristics;
-		dc->width = dm.dmPelsWidth;
-		dc->height = dm.dmPelsHeight;
-		dc->bytesPerPixel = dm.dmBitsPerPel;
-		dc->scanLineLength = -1;
-		dc->vsyncFrequency = dm.dmDisplayFrequency;
-		dc->redShift = -1;
-		dc->redSize = -1;
-		dc->greenShift = -1;
-		dc->greenSize = -1;
-		dc->blueShift = -1;
-		dc->blueSize = -1;
-		modes.insert(dc);
-	}
-#else
-#if 0
-	//ARGL, won't work
-
-	SDL_Rect **modes;
-	modes = SDL_ListModes(NULL, SDL_FULLSCREEN);
-
-	/* Check is there are any modes available */
-	if (modes == (SDL_Rect **)0){
-		DPRINTF("No modes available!\n");
-		return;
-	}
-
-	/* Check if our resolution is restricted */
-	if (modes == (SDL_Rect **)-1) {
-		return;
-	} else {
-	}
-#endif
-#endif
 }
 
 void SDLSystemDisplay::setMouseGrab(bool enable)
 {
 	if (enable == isMouseGrabbed()) return;
 	SystemDisplay::setMouseGrab(enable);
-	if (enable) {
-//		SDL_ShowCursor(SDL_DISABLE);
-		SDL_SetCursor(mInvisibleCursor);
-		SDL_WM_GrabInput(SDL_GRAB_ON);
-	} else {
-		SDL_SetCursor(mVisibleCursor);
-		SDL_WM_GrabInput(SDL_GRAB_OFF);
-//		SDL_ShowCursor(SDL_ENABLE);
-	}
+	SDL_SetRelativeMouseMode(enable ? SDL_TRUE : SDL_FALSE);
 }
 
 void SDLSystemDisplay::initCursor()
 {
-	mVisibleCursor = SDL_GetCursor();
-	// FIXME: need a portable way of getting cursor sizes
-	byte mask[64];
-	memset(mask, 0, sizeof mask);
-	mInvisibleCursor = SDL_CreateCursor(mask, mask, 16, 16, 0, 0);
 }
 
 SystemDisplay *allocSystemDisplay(const char *title, const DisplayCharacteristics &chr, int redraw_ms)

@@ -34,6 +34,7 @@
 #include "system/keyboard.h"
 #include "system/display.h"
 #include "system/sys.h"
+#include "system/ui/gui.h"
 #include "tools/debug.h"
 #include "tools/except.h"
 #include "tools/strtools.h"
@@ -1479,7 +1480,10 @@ bool prom_user_boot_partition(File *&ret_file, uint32 &size, bool &direct, uint3
 				gDisplay->printf("\r\e[0K\rYour choice (ESC abort): %d", choice);
 				uint32 keycode;
 				do {
-					while (!cuda_prom_get_key(keycode)) sys_suspend();
+					while (!cuda_prom_get_key(keycode)) {
+						sys_gui_event();
+						sys_suspend();
+					}
 				} while (keycode & 0x80);
 
 				if (keycode == KEY_DELETE) choice = 0; else

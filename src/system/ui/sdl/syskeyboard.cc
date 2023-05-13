@@ -31,7 +31,7 @@ public:
 	virtual int getKeybLEDs()
 	{
 		int r = 0;
-		SDLMod keyMods = SDL_GetModState();
+		SDL_Keymod keyMods = SDL_GetModState();
 		if (keyMods & KMOD_NUM)
 			r |= KEYB_LED_NUM;
 		if (keyMods & KMOD_CAPS)
@@ -46,7 +46,7 @@ public:
 	{
 #if 0
 		int r = getKeybLEDs() ^ leds;
-		SDLMod keyMods = SDL_GetModState();
+		SDL_Keymod keyMods = SDL_GetModState();
 
 		if (r & KEYB_LED_NUM && leds & KEYB_LED_NUM)
 			(int)keyMods |= KMOD_NUM;
